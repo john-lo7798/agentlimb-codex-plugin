@@ -7,7 +7,7 @@ description: Use when the user asks Codex to use AgentLimb, control Chrome, auto
 
 AgentLimb lets Codex control the user's real Chrome browser through a local Bridge and the AgentLimb Chrome extension.
 
-For normal setup, the user should install AgentLimb from the Chrome Web Store and open the extension side panel. A local `agentlimb-chrome-v0.1.4` unpacked extension copy may exist for development, offline inspection, or version-pinned testing, but it is not tracked by this plugin repository.
+For normal setup, the user should install AgentLimb from the Chrome Web Store and open the extension side panel. Local unpacked extension builds are for development, offline inspection, or version-pinned testing, and are not tracked by this plugin repository.
 
 ## When to use AgentLimb
 

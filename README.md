@@ -15,9 +15,8 @@ This tree adds the Codex-facing package: a plugin manifest, a Codex skill, tempo
 - A Codex skill in `skills/agentlimb/SKILL.md`.
 - A self-contained local Bridge runtime in `runtime/agentlimb-bridge`.
 - Temporary helper scripts in `scripts`.
-- An ignored optional local extension directory at `agentlimb-chrome-v0.1.4` for development, offline inspection, or version-pinned testing.
 
-Normal users should install the AgentLimb extension from the Chrome Web Store. This plugin repository does not need to track the Chrome extension source.
+Normal users should install the AgentLimb extension from the Chrome Web Store. This plugin repository does not include or track the Chrome extension source.
 
 Default behavior is temporary startup only:
 
@@ -36,7 +35,6 @@ agentlimb/
 ├─ skills\agentlimb\           # Codex skill used when AgentLimb is invoked
 ├─ scripts\                    # temporary start/status/stop helpers
 ├─ runtime\agentlimb-bridge\   # self-contained Bridge runtime
-├─ agentlimb-chrome-v0.1.4\    # optional local unpacked extension, ignored by git
 ├─ AGENTS.md                   # maintenance instructions for this repository
 ├─ LICENSE
 ├─ PRIVACY_POLICY.md
@@ -109,16 +107,14 @@ Preferred path:
 
 Development or offline path:
 
+If you need to test an unpacked extension build, use a separate local checkout or build output from the upstream AgentLimb extension project.
+
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Click `Load unpacked`.
-4. Select:
+4. Select your local unpacked AgentLimb extension directory.
 
-```text
-<agentlimb-plugin-root>\agentlimb-chrome-v0.1.4
-```
-
-Keep any unpacked extension copy local. The `agentlimb-chrome-v0.1.4` directory is ignored by git, does not auto-update from the Chrome Web Store, and may have a different extension ID.
+Keep any unpacked extension copy local. It does not auto-update from the Chrome Web Store and may have a different extension ID.
 
 ## Temporary Bridge Startup
 

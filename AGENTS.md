@@ -19,7 +19,6 @@ or commands that derive paths from the script location.
 skills\agentlimb\           AgentLimb Codex skill
 scripts\                    temporary start/status/stop helpers
 runtime\agentlimb-bridge\   self-contained Bridge runtime used by the plugin
-agentlimb-chrome-v0.1.4\    optional local unpacked Chrome extension copy, ignored by git
 ```
 
 There is no separate root-level `agentlimb-bridge` development source. The runtime under `runtime\agentlimb-bridge` is the current Bridge source for this plugin.
@@ -29,7 +28,7 @@ There is no separate root-level `agentlimb-bridge` development source. The runti
 - Use temporary startup only.
 - Do not run `runtime\agentlimb-bridge\scripts\install.ps1` unless the user explicitly asks for persistent install, Native Messaging registration, or autostart.
 - Do not create Windows Scheduled Tasks by default.
-- Prefer the Chrome Web Store extension for normal use; keep `agentlimb-chrome-v0.1.4` local and ignored unless the user explicitly asks to version an extension snapshot.
+- Prefer the Chrome Web Store extension for normal use; do not version local unpacked extension snapshots unless the user explicitly asks.
 - Do not modify the Chrome extension unless the user asks for browser-extension changes.
 - Prefer `.cmd` helper scripts over `.ps1` helper scripts because endpoint protection software may remove or block PowerShell scripts.
 - Do not add marketplace files or personal install-target paths to this repository unless the user explicitly asks for a distribution example.
