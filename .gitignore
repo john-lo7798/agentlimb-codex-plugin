@@ -1,0 +1,35 @@
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local release assets: prepare here, upload manually to GitHub Releases.
+Releases/
+*.zip
+
+# Local/private helper files should never land in the public branch.
+.claude/
+CLAUDE.md
+docs/
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Dependency and build output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Optional local extension snapshot. Normal users install AgentLimb from the
+# Chrome Web Store; keep unpacked extension copies local.
+agentlimb-chrome-v0.1.4/
+
+# AgentLimb runtime state
+runtime/agentlimb-bridge/kernel/.mvp-terminal-session.json

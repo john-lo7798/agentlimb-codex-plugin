@@ -1,0 +1,40 @@
+{
+  "name": "agentlimb",
+  "version": "0.1.4",
+  "description": "Portable AgentLimb bridge runtime for controlling Chrome from Codex.",
+  "author": {
+    "name": "AgentLimb Plugin Maintainers",
+    "url": "https://github.com/hooosberg/AgentLimb"
+  },
+  "homepage": "https://agentlimb.com",
+  "repository": "https://github.com/hooosberg/AgentLimb",
+  "license": "BUSL-1.1",
+  "keywords": [
+    "agentlimb",
+    "browser-automation",
+    "chrome",
+    "local-bridge"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AgentLimb",
+    "shortDescription": "Run a local bridge so Codex can control Chrome",
+    "longDescription": "AgentLimb packages a local bridge runtime and Codex skill for browser automation through the AgentLimb Chrome extension. Normal users install the extension from the Chrome Web Store; local unpacked extension copies are for development and version-pinned testing and are not tracked by this plugin repository. The bridge starts temporarily on 127.0.0.1:7791 and does not install Native Messaging or autostart tasks by default.",
+    "developerName": "AgentLimb Plugin Maintainers",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://agentlimb.com",
+    "privacyPolicyURL": "https://agentlimb.com/privacy.html",
+    "termsOfServiceURL": "https://agentlimb.com/terms.html",
+    "defaultPrompt": [
+      "Use AgentLimb to control my Chrome browser.",
+      "Start the AgentLimb bridge temporarily.",
+      "Check whether AgentLimb is connected."
+    ],
+    "brandColor": "#F5A623",
+    "screenshots": []
+  }
+}
