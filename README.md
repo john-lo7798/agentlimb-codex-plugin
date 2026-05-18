@@ -246,6 +246,5 @@ If startup policy, paths, session isolation, Profile locks, auto-stop, or Chrome
 
 ```text
 README.md
-AGENTS.md
 skills\agentlimb\SKILL.md
 ```
