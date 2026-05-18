@@ -4,10 +4,10 @@ This repository packages AgentLimb for Codex.
 
 AgentLimb itself is the upstream Chrome extension and browser automation project:
 
-- Upstream repository: https://github.com/hooosberg/AgentLimb
-- Chrome Web Store: https://chromewebstore.google.com/detail/agentlimb/hldldfepjhljhbcneojddjkkodkjglof
+- Upstream repository: [hooosberg/AgentLimb](https://github.com/hooosberg/AgentLimb)
+- Chrome Web Store: [AgentLimb](https://chromewebstore.google.com/detail/agentlimb/hldldfepjhljhbcneojddjkkodkjglof)
 
-This tree adds the Codex-facing package: a plugin manifest, a Codex skill, temporary start/status/stop helpers, and a bundled local Bridge runtime. The plugin source is portable and can live anywhere your Codex environment loads local plugins from; commands should derive paths from the script location or use `<agentlimb-plugin-root>`, not a maintainer's personal install path.
+This tree adds the Codex-facing package: a plugin manifest, a Codex skill, temporary start/status/stop helpers, and a bundled local Bridge runtime.
 
 ## What It Provides
 
@@ -15,8 +15,6 @@ This tree adds the Codex-facing package: a plugin manifest, a Codex skill, tempo
 - A Codex skill in `skills/agentlimb/SKILL.md`.
 - A self-contained local Bridge runtime in `runtime/agentlimb-bridge`.
 - Temporary helper scripts in `scripts`.
-
-Normal users should install the AgentLimb extension from the Chrome Web Store. This plugin repository does not include or track the Chrome extension source.
 
 Default behavior is temporary startup only:
 
@@ -37,7 +35,6 @@ agentlimb/
 ├─ runtime\agentlimb-bridge\   # self-contained Bridge runtime
 ├─ AGENTS.md                   # maintenance instructions for this repository
 ├─ LICENSE
-├─ PRIVACY_POLICY.md
 └─ README.md
 ```
 
@@ -51,11 +48,7 @@ There is no separate root-level `agentlimb-bridge` source directory.
 
 ## Recommended Setup
 
-1. Install AgentLimb from the Chrome Web Store:
-
-```text
-https://chromewebstore.google.com/detail/agentlimb/hldldfepjhljhbcneojddjkkodkjglof
-```
+1. Install [AgentLimb from the Chrome Web Store](https://chromewebstore.google.com/detail/agentlimb/hldldfepjhljhbcneojddjkkodkjglof).
 
 2. Open the AgentLimb side panel in the Chrome Profile Codex should control.
 3. Install this repository as a local Codex plugin.
@@ -65,7 +58,20 @@ A Chrome Profile with the side panel closed is treated as suspended. If multiple
 
 ## Install As A Local Codex Plugin
 
-Copy or clone this folder as one plugin directory named `agentlimb` in the plugin location used by your Codex environment.
+Copy or clone this repository as one plugin directory named `agentlimb` in the local marketplace layout used by your Codex environment:
+
+```text
+<marketplace-root>\
+├─ .agents\plugins\marketplace.json
+└─ plugins\agentlimb\
+```
+
+For example:
+
+```powershell
+cd <marketplace-root>\plugins
+git clone https://github.com/john-lo7798/agentlimb-codex-plugin.git agentlimb
+```
 
 The plugin root must contain:
 
@@ -76,7 +82,7 @@ runtime\agentlimb-bridge\
 scripts\
 ```
 
-If your Codex environment uses a local marketplace file, register this plugin with a local source that points to the copied `agentlimb` folder. Keep the installation policy optional:
+Register this plugin in `<marketplace-root>\.agents\plugins\marketplace.json` with a local source that points to the copied `agentlimb` folder. Keep the installation policy optional:
 
 ```json
 {
@@ -93,7 +99,13 @@ If your Codex environment uses a local marketplace file, register this plugin wi
 }
 ```
 
-Do not mark it as installed by default unless you intentionally want that behavior.
+Then add that local marketplace to Codex:
+
+```powershell
+codex plugin marketplace add <marketplace-root>
+```
+
+Do not mark it as installed by default unless you intentionally want that behavior. After the marketplace is added, install or enable `agentlimb` from Codex if your Codex UI does not enable available plugins automatically.
 
 ## Chrome Extension
 
