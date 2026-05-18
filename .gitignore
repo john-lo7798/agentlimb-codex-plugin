@@ -10,6 +10,7 @@ Releases/
 # Local/private helper files should never land in the public branch.
 .claude/
 CLAUDE.md
+AGENTS.md
 docs/
 *.log
 *.tmp
