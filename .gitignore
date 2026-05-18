@@ -12,6 +12,14 @@ Releases/
 CLAUDE.md
 AGENTS.md
 docs/
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
 *.log
 *.tmp
 *.bak
@@ -33,4 +41,7 @@ pnpm-debug.log*
 agentlimb-chrome-v0.1.4/
 
 # AgentLimb runtime state
-runtime/agentlimb-bridge/kernel/.mvp-terminal-session.json
+.mvp-terminal-session.json
+agentlimb-bridge-owner.json
+agentlimb-bridge-owner.lock
+agentlimb-sessions/
