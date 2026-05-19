@@ -9,6 +9,7 @@
   },
   "scripts": {
     "bridge": "node kernel/bridge/mvp/run-server.js",
+    "mcp": "node mcp/server.mjs",
     "agentlimb": "node bin/agentlimb.mjs",
     "status": "node bin/agentlimb.mjs status"
   },

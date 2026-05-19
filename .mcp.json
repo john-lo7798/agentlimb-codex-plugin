@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentlimb": {
+      "command": "node",
+      "cwd": ".",
+      "args": [
+        "./runtime/agentlimb-bridge/mcp/server.mjs"
+      ]
+    }
+  }
+}
