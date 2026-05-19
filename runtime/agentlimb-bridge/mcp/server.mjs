@@ -34,6 +34,7 @@ const mcpDir = dirname(fileURLToPath(import.meta.url));
 const bridgeRoot = dirname(mcpDir);
 const serverPath = join(bridgeRoot, 'kernel', 'bridge', 'mvp', 'run-server.js');
 const sessions = new Map();
+const leasedSessionIds = new Set();
 const bridge = {
   child: null,
   ownedByThisServer: false,
@@ -55,7 +56,7 @@ process.stdin.on('data', (chunk) => {
   readBufferedMessages();
 });
 process.stdin.on('end', () => {
-  void shutdownOwnedBridge({ forceKill: true }).finally(() => process.exit(0));
+  void exitAfterCleanup(0);
 });
 process.on('SIGINT', () => {
   void exitAfterCleanup(0);
@@ -65,11 +66,9 @@ process.on('SIGTERM', () => {
 });
 process.on('exit', () => {
   if (bridge.ownedByThisServer && bridge.child && bridge.child.exitCode == null) {
-    try {
-      bridge.child.kill();
-    } catch {
-      // Best effort only; process exit cannot await cleanup.
-    }
+    appendMcpLog(
+      'MCP process exiting while owned Bridge child is still alive; leaving it running for lease/idle safety.',
+    );
   }
 });
 
@@ -247,7 +246,7 @@ async function agentlimbStart(args = {}) {
     timeoutMs: Number(args.timeoutMs || 30000),
   });
 
-  await registerBridgeLease({
+  await registerTrackedBridgeLease({
     sessionId,
     bridgeUrl: BRIDGE_URL,
     startedByPlugin: bridge.ownedByThisServer,
@@ -288,7 +287,7 @@ async function agentlimbCall(args = {}) {
   const target = normalizeOptionalString(args.target) || sessions.get(sessionId)?.target || null;
 
   await ensureBridgeOnline({ sessionId });
-  await registerBridgeLease({
+  await registerTrackedBridgeLease({
     sessionId,
     bridgeUrl: BRIDGE_URL,
     startedByPlugin: bridge.ownedByThisServer,
@@ -498,10 +497,49 @@ async function callBrowserToolAllowFailure(input) {
   }
 }
 
+async function registerTrackedBridgeLease(input = {}) {
+  const sessionId = resolvePluginSessionId(input.sessionId);
+  const marker = await registerBridgeLease({
+    ...input,
+    sessionId,
+  });
+  leasedSessionIds.add(sessionId);
+  return marker;
+}
+
+function normalizeSessionIds(input = {}) {
+  const sessionIds = new Set();
+  const addSessionId = (value) => {
+    if (value == null) return;
+    const raw = String(value).trim();
+    if (!raw) return;
+    sessionIds.add(resolvePluginSessionId(raw));
+  };
+
+  const values = input.sessionIds;
+  if (values != null) {
+    if (typeof values !== 'string' && typeof values[Symbol.iterator] === 'function') {
+      for (const value of values) addSessionId(value);
+    } else {
+      addSessionId(values);
+    }
+  }
+  if (input.sessionId !== undefined) {
+    addSessionId(input.sessionId);
+  }
+  return sessionIds;
+}
+
+function forgetLeaseTracking(sessionIds) {
+  for (const sessionId of sessionIds) {
+    leasedSessionIds.delete(sessionId);
+  }
+}
+
 async function ensureBridgeOnline(input = {}) {
   const currentStatus = await getStatusQuiet();
   if (currentStatus) {
-    await registerBridgeLease({
+    await registerTrackedBridgeLease({
       sessionId: input.sessionId,
       bridgeUrl: BRIDGE_URL,
       startedByPlugin: bridge.ownedByThisServer,
@@ -549,54 +587,61 @@ async function startOwnedBridge(sessionId) {
     appendMcpLog(`Bridge child exited: code=${code ?? 'null'} signal=${signal ?? 'null'}`);
   });
 
-  for (let i = 0; i < 20; i += 1) {
-    await sleep(500);
-    const readyStatus = await getStatusQuiet();
-    if (!readyStatus) continue;
+  try {
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(500);
+      const readyStatus = await getStatusQuiet();
+      if (!readyStatus) continue;
 
-    await sleep(STARTUP_GRACE_MS);
-    const survivedStatus = await getStatusQuiet();
-    const childAlive = isProcessAlive(bridge.pid);
-    if (!survivedStatus || !childAlive) {
-      const message = [
-        'Bridge responded once but did not survive MCP startup grace check.',
-        `pid=${bridge.pid || 'unknown'}.`,
-        `alive=${childAlive}.`,
-        `exit=${JSON.stringify(bridge.exitInfo || null)}.`,
-      ].join(' ');
-      appendMcpLog(message);
-      throw new Error(`${message} Logs: ${BRIDGE_LOG}, ${BRIDGE_ERR_LOG}`);
+      await sleep(STARTUP_GRACE_MS);
+      const survivedStatus = await getStatusQuiet();
+      const childAlive = isProcessAlive(bridge.pid);
+      if (!survivedStatus || !childAlive) {
+        const message = [
+          'Bridge responded once but did not survive MCP startup grace check.',
+          `pid=${bridge.pid || 'unknown'}.`,
+          `alive=${childAlive}.`,
+          `exit=${JSON.stringify(bridge.exitInfo || null)}.`,
+        ].join(' ');
+        appendMcpLog(message);
+        throw new Error(`${message} Logs: ${BRIDGE_LOG}, ${BRIDGE_ERR_LOG}`);
+      }
+
+      await registerTrackedBridgeLease({
+        sessionId,
+        bridgeUrl: BRIDGE_URL,
+        startedByPlugin: true,
+        pid: bridge.pid,
+        bridgeRoot,
+        serverPath,
+        startedAt: new Date().toISOString(),
+      });
+      return survivedStatus;
     }
 
-    await registerBridgeLease({
-      sessionId,
-      bridgeUrl: BRIDGE_URL,
-      startedByPlugin: true,
-      pid: bridge.pid,
-      bridgeRoot,
-      serverPath,
-      startedAt: new Date().toISOString(),
-    });
-    return survivedStatus;
+    throw new Error(`AgentLimb Bridge did not become ready. Logs: ${BRIDGE_LOG}, ${BRIDGE_ERR_LOG}`);
+  } catch (error) {
+    await forceKillOwnedBridgeAfterFailedStartup(error);
+    throw error;
   }
-
-  throw new Error(`AgentLimb Bridge did not become ready. Logs: ${BRIDGE_LOG}, ${BRIDGE_ERR_LOG}`);
 }
 
 async function stopOwnedBridgeIfIdle(input = {}) {
+  const sessionIds = normalizeSessionIds(input);
   if (!bridge.ownedByThisServer) {
-    await removeLeaseOnly(input.sessionId);
+    await removeLeasesOnly({ sessionIds });
     return { ok: true, stopped: false, reason: 'bridge was not started by this MCP server' };
   }
   if (bridge.stopping) return bridge.stopping;
 
-  bridge.stopping = stopOwnedBridgeIfIdleInner(input).finally(() => {
+  bridge.stopping = stopOwnedBridgeIfIdleInner({ sessionIds }).finally(() => {
     bridge.stopping = null;
   });
   return bridge.stopping;
 }
 
 async function stopOwnedBridgeIfIdleInner(input = {}) {
+  const sessionIds = normalizeSessionIds(input);
   let stopped = false;
   let reason = 'not idle';
 
@@ -610,7 +655,9 @@ async function stopOwnedBridgeIfIdleInner(input = {}) {
       return marker;
     }
 
-    delete marker.leases?.[resolvePluginSessionId(input.sessionId)];
+    for (const sessionId of sessionIds) {
+      delete marker.leases?.[sessionId];
+    }
     marker.updatedAt = new Date().toISOString();
 
     if (!isMarkedProcessAlive(marker)) {
@@ -655,41 +702,93 @@ async function stopOwnedBridgeIfIdleInner(input = {}) {
     return marker;
   });
 
+  forgetLeaseTracking(sessionIds);
   return { ok: true, stopped, reason };
 }
 
-async function removeLeaseOnly(sessionId) {
+async function removeLeasesOnly(input = {}) {
+  const sessionIds = normalizeSessionIds(input);
+  if (sessionIds.size === 0) return;
+
   await withBridgeMarkerLock((marker) => {
     if (!marker) return marker;
-    delete marker.leases?.[resolvePluginSessionId(sessionId)];
+    for (const sessionId of sessionIds) {
+      delete marker.leases?.[sessionId];
+    }
     marker.updatedAt = new Date().toISOString();
     return marker;
   });
+  forgetLeaseTracking(sessionIds);
 }
 
-async function shutdownOwnedBridge(options = {}) {
+async function forceKillOwnedBridgeAfterFailedStartup(error) {
   if (!bridge.ownedByThisServer) return;
 
+  const childPid = bridge.pid;
+  let skippedReason = null;
+
   try {
-    await shutdownBridgeGracefully();
-    for (let i = 0; i < 20; i += 1) {
-      await sleep(250);
-      if (!(await getStatusQuiet())) {
+    await withBridgeMarkerLock(async (marker) => {
+      const markerMatches = markerMatchesOwnedBridge(marker, childPid);
+      const childAlive =
+        bridge.child &&
+        bridge.child.exitCode == null &&
+        isProcessAlive(childPid);
+
+      if (!childAlive) {
         clearOwnedBridgeState();
-        return;
+        return markerMatches ? null : marker;
       }
-    }
-  } catch (error) {
-    appendMcpLog(`Graceful bridge shutdown failed: ${formatError(error)}`);
+
+      if (marker && !markerMatches) {
+        skippedReason = 'owner marker does not match this failed startup child';
+        return marker;
+      }
+      if (marker && activeLeaseCount(marker) > 0) {
+        skippedReason = 'active leases remain';
+        return marker;
+      }
+
+      const status = await getStatusQuiet();
+      if (status && !isBridgeIdleStatus(status.status)) {
+        skippedReason = 'bridge still has queued or claimed work';
+        return marker;
+      }
+
+      if (status && markerMatches) {
+        try {
+          await shutdownBridgeGracefully();
+          for (let i = 0; i < 20; i += 1) {
+            await sleep(250);
+            if (!(await getStatusQuiet())) {
+              clearOwnedBridgeState();
+              return markerMatches ? null : marker;
+            }
+          }
+        } catch (shutdownError) {
+          appendMcpLog(`Failed-startup graceful bridge shutdown failed: ${formatError(shutdownError)}`);
+        }
+      }
+
+      if (bridge.child && bridge.child.exitCode == null) {
+        try {
+          bridge.child.kill();
+        } catch {
+          // Best effort fallback for the just-spawned child only.
+        }
+      }
+      clearOwnedBridgeState();
+      return markerMatches ? null : marker;
+    });
+  } catch (cleanupError) {
+    appendMcpLog(`Failed-startup bridge cleanup failed: ${formatError(cleanupError)}`);
+    return;
   }
 
-  if (options.forceKill && bridge.child && bridge.child.exitCode == null) {
-    try {
-      bridge.child.kill();
-    } catch {
-      // Best effort fallback only.
-    }
-    clearOwnedBridgeState();
+  if (skippedReason) {
+    appendMcpLog(
+      `Skipping failed-startup Bridge force kill: ${skippedReason}. Startup error: ${formatError(error)}`,
+    );
   }
 }
 
@@ -705,6 +804,16 @@ function clearOwnedBridgeState() {
   bridge.ownedByThisServer = false;
   bridge.pid = null;
   bridge.exitInfo = null;
+}
+
+function markerMatchesOwnedBridge(marker, pid = bridge.pid) {
+  return (
+    marker &&
+    marker.owner === OWNER &&
+    marker.bridgeUrl === BRIDGE_URL &&
+    marker.startedByPlugin === true &&
+    Number(marker.pid) === Number(pid)
+  );
 }
 
 async function getStatusQuiet() {
@@ -855,8 +964,24 @@ function sendMessage(message) {
 async function exitAfterCleanup(code) {
   if (shuttingDown) return;
   shuttingDown = true;
-  await shutdownOwnedBridge({ forceKill: true });
-  process.exit(code);
+  try {
+    await releaseLocalLeasesAndStopIfIdle();
+  } catch (error) {
+    appendMcpLog(`MCP exit cleanup failed: ${formatError(error)}`);
+  } finally {
+    process.exit(code);
+  }
+}
+
+async function releaseLocalLeasesAndStopIfIdle() {
+  const sessionIds = [...leasedSessionIds];
+  sessions.clear();
+
+  if (sessionIds.length === 0 && !bridge.ownedByThisServer) {
+    return { ok: true, stopped: false, reason: 'no local leases or owned bridge' };
+  }
+
+  return stopOwnedBridgeIfIdle({ sessionIds });
 }
 
 function formatError(error) {
