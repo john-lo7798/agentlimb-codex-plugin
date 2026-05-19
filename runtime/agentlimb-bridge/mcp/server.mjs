@@ -849,9 +849,7 @@ function sendJsonRpcError(id, code, message, data = null) {
 }
 
 function sendMessage(message) {
-  const body = Buffer.from(JSON.stringify(message), 'utf8');
-  process.stdout.write(`Content-Length: ${body.length}\r\n\r\n`);
-  process.stdout.write(body);
+  process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
 async function exitAfterCleanup(code) {
