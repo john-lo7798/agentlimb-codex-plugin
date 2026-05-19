@@ -75,6 +75,13 @@ cd <marketplace-root>\plugins
 git clone https://github.com/john-lo7798/agentlimb-codex-plugin.git agentlimb
 ```
 
+On macOS/Linux:
+
+```sh
+cd <marketplace-root>/plugins
+git clone https://github.com/john-lo7798/agentlimb-codex-plugin.git agentlimb
+```
+
 The plugin root must contain:
 
 ```text
@@ -146,7 +153,11 @@ agentlimb_abort
 
 ## Temporary Bridge Startup
 
-Run commands from the plugin root:
+Prefer the MCP tools for normal Codex browser tasks. The helper scripts remain useful as a fallback and for manual diagnostics. In sandboxed Codex environments, do not rely on a standalone helper invocation to keep a detached Bridge alive across later shell commands; use the MCP flow or run the full browser task in one command lifecycle.
+
+Run commands from the plugin root.
+
+Windows:
 
 ```powershell
 cd <agentlimb-plugin-root>
@@ -155,28 +166,41 @@ cd <agentlimb-plugin-root>
 & ".\scripts\stop-bridge.cmd"
 ```
 
+macOS/Linux:
+
+```sh
+cd <agentlimb-plugin-root>
+sh ./scripts/status.sh
+sh ./scripts/start-bridge.sh --session-id "$CODEX_THREAD_ID"
+sh ./scripts/stop-bridge.sh
+```
+
 Bridge URL:
 
 ```text
 http://127.0.0.1:7791
 ```
 
-Logs:
+Logs and owner markers use Node's `os.tmpdir()` for the current platform. Common locations:
 
 ```text
-%TEMP%\agentlimb-bridge.log
-%TEMP%\agentlimb-bridge.err.log
+Windows:     %TEMP%\agentlimb-bridge.log
+Windows:     %TEMP%\agentlimb-bridge.err.log
+macOS/Linux: /tmp/agentlimb-bridge.log or the system temporary directory
+macOS/Linux: /tmp/agentlimb-bridge.err.log or the system temporary directory
 ```
 
-`start-bridge.cmd` waits for `/api/mvp/status`, then verifies the started Bridge pid survives a short post-start window before it writes the owner marker and reports success. `status.cmd` reports a stale owner marker when `%TEMP%\agentlimb-bridge-owner.json` points to a pid that is no longer alive.
+Session and lease files are stored next to those logs, for example `%TEMP%\agentlimb-bridge-owner.json` on Windows or `/tmp/agentlimb-bridge-owner.json` on many macOS/Linux systems.
 
-Prefer the MCP tools for normal Codex browser tasks. The `.cmd` helpers remain useful as a fallback and for manual diagnostics. In sandboxed Codex environments, do not rely on a standalone `start-bridge.cmd` invocation to keep a detached Bridge alive across later shell commands; use the MCP flow or run the full browser task in one command lifecycle.
+`start-bridge.cmd` and `start-bridge.sh` wait for `/api/mvp/status`, then verify the started Bridge pid survives a short post-start window before writing the owner marker and reporting success. `status.cmd` and `status.sh` report a stale owner marker when it points to a pid that is no longer alive.
 
-Prefer the `.cmd` helpers when a shell fallback is needed. The `.ps1` helpers are kept only for compatibility because some endpoint protection tools may remove or block PowerShell scripts.
+On Windows, prefer the `.cmd` helpers when a shell fallback is needed. The `.ps1` helpers are kept only for compatibility because some endpoint protection tools may remove or block PowerShell scripts.
 
 ## CLI
 
-Run from the plugin root:
+Run from the plugin root.
+
+Windows:
 
 ```powershell
 $cli = ".\runtime\agentlimb-bridge\bin\agentlimb.mjs"
@@ -186,10 +210,26 @@ node $cli start --session-id $env:CODEX_THREAD_ID --name "Codex" --type "codex"
 node $cli call --session-id $env:CODEX_THREAD_ID --tool tabs_context --params "{}"
 ```
 
+macOS/Linux:
+
+```sh
+cli="./runtime/agentlimb-bridge/bin/agentlimb.mjs"
+
+node "$cli" status
+node "$cli" start --session-id "${CODEX_THREAD_ID:-agentlimb-manual}" --name "Codex" --type "codex"
+node "$cli" call --session-id "${CODEX_THREAD_ID:-agentlimb-manual}" --tool tabs_context --params "{}"
+```
+
 For multiple Chrome Profiles, discover profiles first:
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:7791/api/mvp/extensions -UseBasicParsing
+```
+
+On macOS/Linux:
+
+```sh
+curl -fsS http://127.0.0.1:7791/api/mvp/extensions
 ```
 
 Then pass an explicit target:
@@ -199,13 +239,20 @@ node $cli start --session-id $env:CODEX_THREAD_ID --target "Profile-b83324" --na
 node $cli call --session-id $env:CODEX_THREAD_ID --target "Profile-b83324" --tool tabs_context --params "{}"
 ```
 
+On macOS/Linux:
+
+```sh
+node "$cli" start --session-id "${CODEX_THREAD_ID:-agentlimb-manual}" --target "Profile-b83324" --name "Codex" --type "codex"
+node "$cli" call --session-id "${CODEX_THREAD_ID:-agentlimb-manual}" --target "Profile-b83324" --tool tabs_context --params "{}"
+```
+
 ## Multi-Codex Window Isolation
 
 The plugin runtime supports v1 isolation:
 
 - Each Codex window uses a distinct `sessionId`.
-- Default session files live in `%TEMP%\agentlimb-sessions\<sessionId>.json`.
-- The Bridge owner/lease marker lives in `%TEMP%\agentlimb-bridge-owner.json`.
+- Default session files live under Node's `os.tmpdir()`, for example `%TEMP%\agentlimb-sessions\<sessionId>.json` on Windows or `/tmp/agentlimb-sessions/<sessionId>.json` on many macOS/Linux systems.
+- The Bridge owner/lease marker lives under Node's `os.tmpdir()`, for example `%TEMP%\agentlimb-bridge-owner.json` on Windows or `/tmp/agentlimb-bridge-owner.json` on many macOS/Linux systems.
 - One Chrome Profile can be controlled by only one Codex session at a time.
 - Different Codex sessions can control different Chrome Profiles concurrently.
 - A busy target returns `PROFILE_BUSY`.
@@ -219,7 +266,9 @@ v1 does not support two Codex windows controlling different tabs inside the same
 
 Do not run persistent install by default.
 
-Only run this when the user explicitly wants Native Messaging registration or autostart:
+Only run this when the user explicitly wants Native Messaging registration or autostart.
+
+Windows:
 
 ```powershell
 cd <agentlimb-plugin-root>\runtime\agentlimb-bridge
@@ -231,6 +280,19 @@ If you are using a local unpacked extension and it has a different extension ID,
 
 ```powershell
 .\scripts\install.ps1 -ExtensionId <your-extension-id>
+```
+
+macOS/Linux:
+
+```sh
+cd <agentlimb-plugin-root>/runtime/agentlimb-bridge
+sh ./scripts/install.sh
+```
+
+If you are using a local unpacked extension and it has a different extension ID, copy the ID from `chrome://extensions`:
+
+```sh
+sh ./scripts/install.sh --extension-id <your-extension-id>
 ```
 
 ## Security Notes
@@ -263,6 +325,14 @@ node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\server.js"
 node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\store.js"
 node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\terminal-client.mjs"
 node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\plugin-lease.mjs"
+```
+
+If `sh` is available, also validate the macOS/Linux wrappers:
+
+```sh
+sh -n ./scripts/status.sh
+sh -n ./scripts/start-bridge.sh
+sh -n ./scripts/stop-bridge.sh
 ```
 
 If startup policy, paths, session isolation, Profile locks, auto-stop, or Chrome extension loading changes, update these files together:

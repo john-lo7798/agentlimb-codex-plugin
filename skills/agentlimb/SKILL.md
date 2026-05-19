@@ -43,7 +43,7 @@ Use those docs to resolve uncertainty about available tools, arguments, or curre
 ## Default policy
 
 - Default to temporary startup only.
-- Do not run `runtime/agentlimb-bridge/scripts/install.ps1` unless the user explicitly asks for persistent install, Native Messaging registration, or autostart.
+- Do not run `runtime/agentlimb-bridge/scripts/install.ps1` or `runtime/agentlimb-bridge/scripts/install.sh` unless the user explicitly asks for persistent install, Native Messaging registration, or autostart.
 - Do not create Windows Scheduled Tasks by default.
 - Prefer the Chrome Web Store extension for normal browser tasks; use a local unpacked extension only when the user is testing a specific local extension copy.
 - Prefer the AgentLimb MCP tools when they are available. They keep the temporary Bridge under Codex's managed process lifecycle, which is the most stable path in sandbox mode.
@@ -55,11 +55,11 @@ Use those docs to resolve uncertainty about available tools, arguments, or curre
 
 ## Resolve paths
 
-Set `$pluginRoot` to the installed AgentLimb plugin root, which is the directory containing `.codex-plugin\plugin.json`.
+Set the plugin root to the installed AgentLimb plugin root, which is the directory containing `.codex-plugin/plugin.json`.
 
-If Codex exposes this skill file path, derive the plugin root by removing `\skills\agentlimb\SKILL.md` from that path. If not, use the current plugin root known to the session or an explicit `AGENTLIMB_PLUGIN_ROOT` environment variable if the user has set one.
+If Codex exposes this skill file path, derive the plugin root by removing `skills/agentlimb/SKILL.md` from that path. If not, use the current plugin root known to the session or an explicit `AGENTLIMB_PLUGIN_ROOT` environment variable if the user has set one.
 
-Use these variables after resolving the root:
+Use these variables after resolving the root on Windows:
 
 ```powershell
 $pluginRoot = "<agentlimb-plugin-root>"
@@ -69,17 +69,29 @@ $startScript = Join-Path $pluginRoot "scripts\start-bridge.cmd"
 $stopScript = Join-Path $pluginRoot "scripts\stop-bridge.cmd"
 ```
 
+Use these variables after resolving the root on macOS/Linux:
+
+```sh
+pluginRoot="<agentlimb-plugin-root>"
+cli="$pluginRoot/runtime/agentlimb-bridge/bin/agentlimb.mjs"
+statusScript="$pluginRoot/scripts/status.sh"
+startScript="$pluginRoot/scripts/start-bridge.sh"
+stopScript="$pluginRoot/scripts/stop-bridge.sh"
+```
+
 Bridge URL:
 
 ```text
 http://127.0.0.1:7791
 ```
 
-Logs:
+Logs and owner markers use Node's `os.tmpdir()` for the current platform. Common locations:
 
 ```text
-%TEMP%\agentlimb-bridge.log
-%TEMP%\agentlimb-bridge.err.log
+Windows:     %TEMP%\agentlimb-bridge.log
+Windows:     %TEMP%\agentlimb-bridge.err.log
+macOS/Linux: /tmp/agentlimb-bridge.log or the system temporary directory
+macOS/Linux: /tmp/agentlimb-bridge.err.log or the system temporary directory
 ```
 
 ## Startup
@@ -98,36 +110,69 @@ Use `agentlimb_status` first. If a real browser mission follows, call `agentlimb
 
 Shell fallback:
 
-Always check Bridge status first:
+Always check Bridge status first.
+
+Windows:
 
 ```powershell
 & $statusScript
 ```
 
+macOS/Linux:
+
+```sh
+sh "$statusScript"
+```
+
 If the Bridge is offline, start it temporarily:
+
+Windows:
 
 ```powershell
 $sessionId = if ($env:AGENTLIMB_SESSION_ID) { $env:AGENTLIMB_SESSION_ID } elseif ($env:CODEX_THREAD_ID) { $env:CODEX_THREAD_ID } else { "codex-" + [guid]::NewGuid().ToString("N") }
 & $startScript --session-id $sessionId
 ```
 
-The start helper waits for `/api/mvp/status`, then verifies the started Bridge pid survives the post-start check before reporting success. If `status.cmd` reports a stale owner marker, the recorded Bridge pid is no longer alive; rerun startup, and if the local Codex sandbox keeps killing background processes, use an approved background launch or persistent setup only when the user explicitly asks.
+macOS/Linux:
 
-In Codex sandbox mode, do not rely on a standalone `start-bridge.cmd` invocation to keep a detached Bridge alive across later shell commands. Prefer the MCP flow, or run start, browser calls, and finish inside one command lifecycle when MCP is unavailable.
+```sh
+sessionId="${AGENTLIMB_SESSION_ID:-${CODEX_THREAD_ID:-agentlimb-manual}}"
+sh "$startScript" --session-id "$sessionId"
+```
+
+The start helper waits for `/api/mvp/status`, then verifies the started Bridge pid survives the post-start check before reporting success. If `status.cmd` or `status.sh` reports a stale owner marker, the recorded Bridge pid is no longer alive; rerun startup, and if the local Codex sandbox keeps killing background processes, use an approved background launch or persistent setup only when the user explicitly asks.
+
+In Codex sandbox mode, do not rely on a standalone helper invocation to keep a detached Bridge alive across later shell commands. Prefer the MCP flow, or run start, browser calls, and finish inside one command lifecycle when MCP is unavailable.
 
 Stop the temporary Bridge when cleanup is needed:
+
+Windows:
 
 ```powershell
 & $stopScript
 ```
 
+macOS/Linux:
+
+```sh
+sh "$stopScript"
+```
+
 Stop only when this plugin owns the current Bridge process and no other Codex session still has a lease:
+
+Windows:
 
 ```powershell
 & $stopScript --owned-only --session-id $sessionId
 ```
 
-Prefer `.cmd` wrappers if endpoint protection software removes or blocks PowerShell scripts.
+macOS/Linux:
+
+```sh
+sh "$stopScript" --owned-only --session-id "$sessionId"
+```
+
+On Windows, prefer `.cmd` wrappers if endpoint protection software removes or blocks PowerShell scripts.
 
 ## Browser task flow
 
@@ -137,29 +182,54 @@ When the user gives a real browser mission:
 2. Prefer the MCP tools: `agentlimb_status`, `agentlimb_start`, `agentlimb_call`, and `agentlimb_finish`.
 3. Use one `sessionId` for `agentlimb_start`, every `agentlimb_call`, and `agentlimb_finish` or `agentlimb_abort`.
 4. Pass `target` whenever more than one Chrome Profile is active or the user names a profile.
-5. If MCP tools are unavailable, resolve `$pluginRoot`, `$cli`, `$statusScript`, `$startScript`, and `$stopScript`.
-6. Ensure the Bridge is online using `status.cmd`, then `start-bridge.cmd` if needed.
+5. If MCP tools are unavailable, resolve `pluginRoot`, `cli`, `statusScript`, `startScript`, and `stopScript` for the current platform.
+6. Ensure the Bridge is online using the status helper, then the start helper if needed.
 7. Start a terminal session:
+
+Windows:
 
 ```powershell
 node $cli start --session-id $sessionId --name "Codex" --type "codex"
 ```
 
+macOS/Linux:
+
+```sh
+node "$cli" start --session-id "$sessionId" --name "Codex" --type "codex"
+```
+
 8. Use `call --session-id $sessionId --tool <tool_name> --params '<JSON>'` for browser operations.
 9. Before ending a real task, call `muscle_commit`, then `task_complete` or `task_fail`, then `complete`.
-10. The plugin runtime's `complete` command releases the current session's Profile lock and lease, then runs smart auto-stop. As a cleanup fallback, run `stop-bridge.cmd --owned-only --session-id $sessionId`.
+10. The plugin runtime's `complete` command releases the current session's Profile lock and lease, then runs smart auto-stop. As a cleanup fallback, run the stop helper with `--owned-only --session-id`.
 
 When several Chrome Profiles are online, discover them first:
+
+Windows:
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:7791/api/mvp/extensions -UseBasicParsing
 ```
 
+macOS/Linux:
+
+```sh
+curl -fsS http://127.0.0.1:7791/api/mvp/extensions
+```
+
 Then pass the chosen profile on `start` and every `call`:
+
+Windows:
 
 ```powershell
 node $cli start --session-id $sessionId --target "Profile-b83324" --name "Codex" --type "codex"
 node $cli call --session-id $sessionId --target "Profile-b83324" --tool tabs_context --params "{}"
+```
+
+macOS/Linux:
+
+```sh
+node "$cli" start --session-id "$sessionId" --target "Profile-b83324" --name "Codex" --type "codex"
+node "$cli" call --session-id "$sessionId" --target "Profile-b83324" --tool tabs_context --params "{}"
 ```
 
 If a call fails with `PROFILE_BUSY`, that Profile is locked by another Codex session; do not switch profiles automatically unless the user asks. If a call fails with `TARGET_REQUIRED`, multiple active Profiles are online and the command must be repeated with an explicit `--target`.
@@ -192,28 +262,60 @@ Shell fallback closure:
 
 1. Commit or discard muscle memory:
 
+Windows:
+
 ```powershell
 node $cli call --session-id $sessionId --tool muscle_commit --params '{"status":"success","verification":"<how you verified>"}'
+```
+
+macOS/Linux:
+
+```sh
+node "$cli" call --session-id "$sessionId" --tool muscle_commit --params '{"status":"success","verification":"<how you verified>"}'
 ```
 
 Use `status:"failed"` when the task failed and candidates should be discarded. Use `status:"partial"` when useful work was completed but the task is incomplete. Use `status:"manual"` mid-task when the user says to save something or when a selector/workflow is worth preserving immediately.
 
 2. Push the side-panel terminal state:
 
+Windows:
+
 ```powershell
 node $cli call --session-id $sessionId --tool task_complete --params '{"summary":"<one-line result>"}'
 ```
 
+macOS/Linux:
+
+```sh
+node "$cli" call --session-id "$sessionId" --tool task_complete --params '{"summary":"<one-line result>"}'
+```
+
 On failure:
+
+Windows:
 
 ```powershell
 node $cli call --session-id $sessionId --tool task_fail --params '{"reason":"<failure reason>","stepIndex":0}'
 ```
 
+macOS/Linux:
+
+```sh
+node "$cli" call --session-id "$sessionId" --tool task_fail --params '{"reason":"<failure reason>","stepIndex":0}'
+```
+
 3. End the terminal session and release this session's Profile lock and lease:
+
+Windows:
 
 ```powershell
 node $cli complete --session-id $sessionId --task-id "<task.id>" --ok true --output "<result summary>"
+```
+
+macOS/Linux:
+
+```sh
+node "$cli" complete --session-id "$sessionId" --task-id "<task.id>" --ok true --output "<result summary>"
 ```
 
 During the task, use `task_plan` once at the logical workflow level and call `task_step_done` whenever a logical step finishes. Keep plans to 2-5 meaningful steps, not one step per browser tool call.
