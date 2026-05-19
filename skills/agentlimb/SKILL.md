@@ -46,7 +46,8 @@ Use those docs to resolve uncertainty about available tools, arguments, or curre
 - Do not run `runtime/agentlimb-bridge/scripts/install.ps1` unless the user explicitly asks for persistent install, Native Messaging registration, or autostart.
 - Do not create Windows Scheduled Tasks by default.
 - Prefer the Chrome Web Store extension for normal browser tasks; use a local unpacked extension only when the user is testing a specific local extension copy.
-- Use smart auto-stop: if this plugin started the Bridge for the task, the plugin runtime stops it after `complete`; if the Bridge was already online before startup, leave it running.
+- Prefer the AgentLimb MCP tools when they are available. They keep the temporary Bridge under Codex's managed process lifecycle, which is the most stable path in sandbox mode.
+- Use smart auto-stop: if this plugin started the Bridge for the task, the plugin runtime stops it after `agentlimb_finish` or `complete`; if the Bridge was already online before startup, leave it running.
 - Use one isolated AgentLimb session per Codex thread. Prefer `AGENTLIMB_SESSION_ID` or `CODEX_THREAD_ID` when available; otherwise create one once per task and reuse it for `start`, every `call`, and `complete`.
 - In multi-profile Chrome setups, prefer an explicit `--target "<profile label or extension id>"`. Do not let two Codex sessions control the same Chrome Profile at the same time.
 - Do not start a browser task just to test setup unless the user gave an actual browser mission.
@@ -83,6 +84,20 @@ Logs:
 
 ## Startup
 
+Preferred MCP flow:
+
+```text
+agentlimb_status
+agentlimb_start
+agentlimb_call
+agentlimb_finish
+agentlimb_abort
+```
+
+Use `agentlimb_status` first. If a real browser mission follows, call `agentlimb_start` with one `sessionId` and the explicit `target` when the user names a Chrome Profile. Use `agentlimb_call` for every browser operation, then close with `agentlimb_finish` on success or `agentlimb_abort` on failure. The MCP server starts the Bridge as a non-detached child process when needed, keeps it alive across tool calls, and stops it only when it owns the Bridge and the Bridge is idle.
+
+Shell fallback:
+
 Always check Bridge status first:
 
 ```powershell
@@ -95,6 +110,10 @@ If the Bridge is offline, start it temporarily:
 $sessionId = if ($env:AGENTLIMB_SESSION_ID) { $env:AGENTLIMB_SESSION_ID } elseif ($env:CODEX_THREAD_ID) { $env:CODEX_THREAD_ID } else { "codex-" + [guid]::NewGuid().ToString("N") }
 & $startScript --session-id $sessionId
 ```
+
+The start helper waits for `/api/mvp/status`, then verifies the started Bridge pid survives the post-start check before reporting success. If `status.cmd` reports a stale owner marker, the recorded Bridge pid is no longer alive; rerun startup, and if the local Codex sandbox keeps killing background processes, use an approved background launch or persistent setup only when the user explicitly asks.
+
+In Codex sandbox mode, do not rely on a standalone `start-bridge.cmd` invocation to keep a detached Bridge alive across later shell commands. Prefer the MCP flow, or run start, browser calls, and finish inside one command lifecycle when MCP is unavailable.
 
 Stop the temporary Bridge when cleanup is needed:
 
@@ -115,17 +134,20 @@ Prefer `.cmd` wrappers if endpoint protection software removes or blocks PowerSh
 When the user gives a real browser mission:
 
 1. Ensure the Chrome extension is installed or loaded, enabled, and its side panel is online.
-2. Resolve `$pluginRoot`, `$cli`, `$statusScript`, `$startScript`, and `$stopScript`.
-3. Ensure the Bridge is online using `status.cmd`, then `start-bridge.cmd` if needed.
-4. Start a terminal session:
+2. Prefer the MCP tools: `agentlimb_status`, `agentlimb_start`, `agentlimb_call`, and `agentlimb_finish`.
+3. Use one `sessionId` for `agentlimb_start`, every `agentlimb_call`, and `agentlimb_finish` or `agentlimb_abort`.
+4. Pass `target` whenever more than one Chrome Profile is active or the user names a profile.
+5. If MCP tools are unavailable, resolve `$pluginRoot`, `$cli`, `$statusScript`, `$startScript`, and `$stopScript`.
+6. Ensure the Bridge is online using `status.cmd`, then `start-bridge.cmd` if needed.
+7. Start a terminal session:
 
 ```powershell
 node $cli start --session-id $sessionId --name "Codex" --type "codex"
 ```
 
-5. Use `call --session-id $sessionId --tool <tool_name> --params '<JSON>'` for browser operations.
-6. Before ending a real task, call `muscle_commit`, then `task_complete` or `task_fail`, then `complete`.
-7. The plugin runtime's `complete` command releases the current session's Profile lock and lease, then runs smart auto-stop. As a cleanup fallback, run `stop-bridge.cmd --owned-only --session-id $sessionId`.
+8. Use `call --session-id $sessionId --tool <tool_name> --params '<JSON>'` for browser operations.
+9. Before ending a real task, call `muscle_commit`, then `task_complete` or `task_fail`, then `complete`.
+10. The plugin runtime's `complete` command releases the current session's Profile lock and lease, then runs smart auto-stop. As a cleanup fallback, run `stop-bridge.cmd --owned-only --session-id $sessionId`.
 
 When several Chrome Profiles are online, discover them first:
 
@@ -157,6 +179,16 @@ Do not issue `task_plan`, `task_complete`, `task_fail`, navigation, snapshots, o
 ## Required task closure
 
 Every real browser mission must close in this order:
+
+MCP preferred closure:
+
+```text
+agentlimb_finish({ sessionId, target, ok, summary, muscleStatus, verification })
+```
+
+Use `agentlimb_abort({ sessionId, target, reason })` when the task fails before normal closure. These MCP tools perform the muscle commit/discard, side-panel task state update, terminal completion, lease release, Profile lock release, and owned idle Bridge cleanup.
+
+Shell fallback closure:
 
 1. Commit or discard muscle memory:
 

@@ -16,6 +16,7 @@
     "local-bridge"
   ],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "AgentLimb",
     "shortDescription": "Run a local bridge so Codex can control Chrome",

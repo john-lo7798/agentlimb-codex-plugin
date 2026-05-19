@@ -21,6 +21,7 @@ export function createMvpServer(options = {}) {
   const host = options.host || DEFAULT_HOST;
   const port = Number.isInteger(options.port) ? options.port : DEFAULT_PORT;
   const store = options.store || createMvpStore();
+  const onShutdown = typeof options.onShutdown === 'function' ? options.onShutdown : null;
 
   let activePort = null;
   const _openSockets = new Set();
@@ -61,7 +62,8 @@ export function createMvpServer(options = {}) {
     });
   }
 
-  async function shutdownProcess() {
+  async function shutdownProcess(reason = 'api shutdown endpoint') {
+    await onShutdown?.(reason);
     await stopServer();
     process.exitCode = 0;
   }
@@ -463,7 +465,7 @@ async function handleRequest(request, response, context) {
           // LaunchAgent not loaded (running via `node run-server.js` directly) — harmless
         }
       }
-      await context.shutdownProcess();
+      await context.shutdownProcess('api shutdown endpoint');
     }, 150);
     return;
   }

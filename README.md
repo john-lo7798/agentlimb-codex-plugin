@@ -7,12 +7,13 @@ AgentLimb itself is the upstream Chrome extension and browser automation project
 - Upstream repository: [hooosberg/AgentLimb](https://github.com/hooosberg/AgentLimb)
 - Chrome Web Store: [AgentLimb](https://chromewebstore.google.com/detail/agentlimb/hldldfepjhljhbcneojddjkkodkjglof)
 
-This tree adds the Codex-facing package: a plugin manifest, a Codex skill, temporary start/status/stop helpers, and a bundled local Bridge runtime.
+This tree adds the Codex-facing package: a plugin manifest, a Codex skill, a Codex-managed MCP entrypoint, temporary start/status/stop helpers, and a bundled local Bridge runtime.
 
 ## What It Provides
 
 - A Codex plugin manifest in `.codex-plugin/plugin.json`.
 - A Codex skill in `skills/agentlimb/SKILL.md`.
+- A Codex-managed MCP server in `runtime/agentlimb-bridge/mcp/server.mjs`.
 - A self-contained local Bridge runtime in `runtime/agentlimb-bridge`.
 - Temporary helper scripts in `scripts`.
 
@@ -23,13 +24,14 @@ Default behavior is temporary startup only:
 - No default autostart.
 - No bundled user-specific marketplace or install-path assumptions.
 
-The Codex plugin starts the Bridge on demand at `127.0.0.1:7791`, talks to the AgentLimb extension in the user's real Chrome Profile, and releases its session lease when the browser task is complete.
+The Codex plugin starts the Bridge on demand at `127.0.0.1:7791`, talks to the AgentLimb extension in the user's real Chrome Profile, and releases its session lease when the browser task is complete. In Codex sandbox mode, the MCP server is the preferred entrypoint because Codex manages that process lifecycle and the Bridge stays under the same foreground process tree for the whole browser task.
 
 ## Directory Layout
 
 ```text
 agentlimb/
 ├─ .codex-plugin\              # Codex plugin manifest
+├─ .mcp.json                   # MCP server registration
 ├─ skills\agentlimb\           # Codex skill used when AgentLimb is invoked
 ├─ scripts\                    # temporary start/status/stop helpers
 ├─ runtime\agentlimb-bridge\   # self-contained Bridge runtime
@@ -52,7 +54,7 @@ There is no separate root-level `agentlimb-bridge` source directory.
 
 2. Open the AgentLimb side panel in the Chrome Profile Codex should control.
 3. Install this repository as a local Codex plugin.
-4. Ask Codex to use AgentLimb. The plugin should start the local Bridge temporarily and connect to the active side panel.
+4. Ask Codex to use AgentLimb. Codex should use the plugin MCP tools first, start the local Bridge temporarily, and connect to the active side panel.
 
 A Chrome Profile with the side panel closed is treated as suspended. If multiple Profiles are active, the caller should choose a target Profile instead of letting Codex guess.
 
@@ -128,6 +130,20 @@ If you need to test an unpacked extension build, use a separate local checkout o
 
 Keep any unpacked extension copy local. It does not auto-update from the Chrome Web Store and may have a different extension ID.
 
+## MCP Tool Flow
+
+When available, Codex should use the plugin's MCP tools instead of shelling out to separate helper commands for each browser step:
+
+```text
+agentlimb_status
+agentlimb_start
+agentlimb_call
+agentlimb_finish
+agentlimb_abort
+```
+
+`agentlimb_start` attaches to an already-running Bridge without taking ownership. If the Bridge is offline, the MCP server starts it as a non-detached child process, verifies `/api/mvp/status`, writes the owner marker, and keeps it alive for subsequent MCP calls. `agentlimb_finish` commits or discards muscle memory, updates the side panel task state, completes the terminal task, releases Profile locks and leases, and stops the Bridge only when this MCP server started it and it is idle.
+
 ## Temporary Bridge Startup
 
 Run commands from the plugin root:
@@ -152,7 +168,11 @@ Logs:
 %TEMP%\agentlimb-bridge.err.log
 ```
 
-Prefer the `.cmd` helpers. The `.ps1` helpers are kept only for compatibility because some endpoint protection tools may remove or block PowerShell scripts.
+`start-bridge.cmd` waits for `/api/mvp/status`, then verifies the started Bridge pid survives a short post-start window before it writes the owner marker and reports success. `status.cmd` reports a stale owner marker when `%TEMP%\agentlimb-bridge-owner.json` points to a pid that is no longer alive.
+
+Prefer the MCP tools for normal Codex browser tasks. The `.cmd` helpers remain useful as a fallback and for manual diagnostics. In sandboxed Codex environments, do not rely on a standalone `start-bridge.cmd` invocation to keep a detached Bridge alive across later shell commands; use the MCP flow or run the full browser task in one command lifecycle.
+
+Prefer the `.cmd` helpers when a shell fallback is needed. The `.ps1` helpers are kept only for compatibility because some endpoint protection tools may remove or block PowerShell scripts.
 
 ## CLI
 
@@ -229,12 +249,15 @@ After runtime or script changes, validate:
 
 ```powershell
 Get-Content -Raw ".\.codex-plugin\plugin.json" | ConvertFrom-Json | Out-Null
+Get-Content -Raw ".\.mcp.json" | ConvertFrom-Json | Out-Null
 
 node --check ".\scripts\start-bridge.mjs"
 node --check ".\scripts\status.mjs"
 node --check ".\scripts\stop-bridge.mjs"
+node --check ".\runtime\agentlimb-bridge\mcp\server.mjs"
 node --check ".\runtime\agentlimb-bridge\bin\agentlimb.mjs"
 node --check ".\runtime\agentlimb-bridge\bin\native-host.mjs"
+node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\run-server.js"
 node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\client.js"
 node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\server.js"
 node --check ".\runtime\agentlimb-bridge\kernel\bridge\mvp\store.js"
@@ -246,5 +269,6 @@ If startup policy, paths, session isolation, Profile locks, auto-stop, or Chrome
 
 ```text
 README.md
+AGENTS.md
 skills\agentlimb\SKILL.md
 ```
