@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate JSON files
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const skipDirs = new Set(['.git', 'node_modules']);
+          const files = [];
+
+          function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (skipDirs.has(entry.name)) continue;
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                walk(fullPath);
+              } else if (entry.isFile() && entry.name.endsWith('.json')) {
+                files.push(fullPath);
+              }
+            }
+          }
+
+          walk('.');
+
+          for (const file of files.sort()) {
+            JSON.parse(fs.readFileSync(file, 'utf8'));
+            console.log(`valid json: ${file}`);
+          }
+          NODE
+
+      - name: Check JavaScript syntax
+        run: |
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(find . \
+            -type f \( -name '*.js' -o -name '*.mjs' \) \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -print0)
+
+      - name: Check POSIX shell wrappers
+        if: runner.os == 'Linux'
+        run: |
+          sh -n ./scripts/status.sh
+          sh -n ./scripts/start-bridge.sh
+          sh -n ./scripts/stop-bridge.sh
+
+      - name: Check PowerShell wrappers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $files = @(
+            '.\scripts\status.ps1',
+            '.\scripts\start-bridge.ps1',
+            '.\scripts\stop-bridge.ps1'
+          )
+
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            $path = (Resolve-Path $file).Path
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref] $tokens, [ref] $errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "${file}: $($_.Message)" }
+              exit 1
+            }
+            Write-Output "valid powershell: $file"
+          }
+
+      - name: Start AgentLimb bridge
+        env:
+          AGENTLIMB_BRIDGE_STARTUP_GRACE_MS: "1000"
+        run: |
+          session_id="github-actions-${RUNNER_OS}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "AGENTLIMB_CI_SESSION_ID=$session_id" >> "$GITHUB_ENV"
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./scripts/start-bridge.cmd --session-id "$session_id"
+          else
+            sh ./scripts/start-bridge.sh --session-id "$session_id"
+          fi
+
+      - name: Check AgentLimb bridge status
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./scripts/status.cmd
+          else
+            sh ./scripts/status.sh
+          fi
+
+      - name: Stop AgentLimb bridge
+        if: always()
+        run: |
+          session_id="${AGENTLIMB_CI_SESSION_ID:-github-actions-${RUNNER_OS}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./scripts/stop-bridge.cmd --owned-only --session-id "$session_id"
+          else
+            sh ./scripts/stop-bridge.sh --owned-only --session-id "$session_id"
+          fi
